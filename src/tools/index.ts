@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Config } from "../config.js";
 import { LmsClient, LmsError, type LmsParam } from "../lms/client.js";
 import { listPlayers, resolvePlayerId } from "../lms/players.js";
+import { bestMatch, getFavorites, getPlaylists, searchLibrary } from "../lms/music.js";
 
 /** Wrap a handler so LmsError surfaces as a clean tool error instead of a stack trace. */
 function tool<T>(fn: () => Promise<T>) {
@@ -157,42 +158,86 @@ export function registerTools(server: McpServer, client: LmsClient, config: Conf
   );
 
   server.registerTool(
-    "search_library",
+    "search",
     {
-      title: "Search library",
+      title: "Search",
       description:
-        "Search the music library. Returns matching artists, albums and tracks with the ids used by play_music.",
+        "Search everything a track can come from, in one call: favorites (saved radio streams / stations — listed FIRST), saved playlists, then the music library (artists, albums, tracks). Use this before play_music. Omit `query` to just browse favorites and playlists. Anything with a `url` or an id can be handed to play_music.",
       inputSchema: {
-        query: z.string().min(1),
+        query: z.string().optional().describe("Substring to match; omit to list favorites and playlists."),
         limit: z.number().int().min(1).max(50).default(10),
       },
     },
     ({ query, limit }) =>
       tool(async () => {
-        const r = await client.serverRequest(["search", 0, limit, `term:${query}`]);
-        const pick = <T,>(loop: unknown) => ((loop as T[] | undefined) ?? []);
+        const [favorites, playlists, library] = await Promise.all([
+          getFavorites(client, query, limit),
+          getPlaylists(client, query),
+          query ? searchLibrary(client, query, limit) : Promise.resolve(null),
+        ]);
         return json({
-          artists: pick<{ contributor_id: number; contributor: string }>(r.contributors_loop).map(
-            (a) => ({ artistId: a.contributor_id, name: a.contributor }),
-          ),
-          albums: pick<{ album_id: number; album: string }>(r.albums_loop).map((a) => ({
-            albumId: a.album_id,
-            title: a.album,
-          })),
-          tracks: pick<{ track_id: number; track: string }>(r.tracks_loop).map((t) => ({
-            trackId: t.track_id,
-            title: t.track,
-          })),
+          favorites: favorites.map((f) => ({ name: f.name, url: f.url, playable: f.isAudio && !!f.url })),
+          playlists,
+          artists: library?.artists ?? [],
+          albums: library?.albums ?? [],
+          tracks: library?.tracks ?? [],
         });
+      }),
+  );
+
+  server.registerTool(
+    "play",
+    {
+      title: "Play by name",
+      description:
+        "Play something from a free-text name in ONE call. Resolves in priority order: favorite (radio/station) → saved playlist → album → artist → track, then starts it. Returns what it matched. Use this for requests like \"play liquid dnb\" / \"put on some jazz\"; use play_music only when you already have an id or URL.",
+      inputSchema: {
+        query: z.string().min(1),
+        mode: z.enum(["load", "add", "insert"]).default("load"),
+        ...playerArg,
+      },
+    },
+    ({ query, mode, player }) =>
+      tool(async () => {
+        const id = await resolve(player);
+        const q = query.trim();
+        const ql = q.toLowerCase();
+        const verb = mode === "load" ? "play" : mode;
+
+        const favs = (await getFavorites(client, q, 20)).filter((f) => f.isAudio && f.url);
+        const fav = bestMatch(favs, ql, (f) => f.name);
+        if (fav) {
+          await client.request(id, ["playlist", verb, fav.url as string]);
+          return json({ matched: "favorite", name: fav.name, mode, player: id });
+        }
+
+        const pls = await getPlaylists(client, q);
+        const pl = bestMatch(pls, ql, (p) => p.name);
+        if (pl) {
+          await client.request(id, ["playlistcontrol", `cmd:${mode}`, `playlist_id:${pl.playlistId}`]);
+          return json({ matched: "playlist", name: pl.name, mode, player: id });
+        }
+
+        const lib = await searchLibrary(client, q, 5);
+        const target =
+          (lib.albums[0] && { kind: "album", field: "album_id", id: lib.albums[0].albumId, name: lib.albums[0].title }) ||
+          (lib.artists[0] && { kind: "artist", field: "artist_id", id: lib.artists[0].artistId, name: lib.artists[0].name }) ||
+          (lib.tracks[0] && { kind: "track", field: "track_id", id: lib.tracks[0].trackId, name: lib.tracks[0].title });
+        if (target) {
+          await client.request(id, ["playlistcontrol", `cmd:${mode}`, `${target.field}:${target.id}`]);
+          return json({ matched: target.kind, name: target.name, mode, player: id });
+        }
+
+        throw new LmsError(`Nothing matched "${q}" in favorites, playlists or the library`);
       }),
   );
 
   server.registerTool(
     "play_music",
     {
-      title: "Play music",
+      title: "Play music by id / URL",
       description:
-        "Load or queue music by library id (from search_library) or by direct URL. mode 'load' replaces the queue and plays, 'add' appends, 'insert' plays next.",
+        "Play a specific item you already have an identifier for (from `search`), or a direct stream URL. For playing by name, use `play` instead. mode 'load' replaces the queue and plays, 'add' appends, 'insert' plays next.",
       inputSchema: {
         mode: z.enum(["load", "add", "insert"]).default("load"),
         trackId: z.number().int().optional(),
@@ -200,7 +245,7 @@ export function registerTools(server: McpServer, client: LmsClient, config: Conf
         artistId: z.number().int().optional(),
         genreId: z.number().int().optional(),
         playlistId: z.number().int().optional(),
-        url: z.string().url().optional(),
+        url: z.string().url().optional().describe("Direct stream URL, e.g. a favorite's url from `search`."),
         ...playerArg,
       },
     },
@@ -320,7 +365,7 @@ export function registerTools(server: McpServer, client: LmsClient, config: Conf
     {
       title: "Raw CLI command",
       description:
-        "Escape hatch: run an arbitrary LMS CLI command. See http://<server>:9000/html/docs/cli-api.html. Example command: [\"mixer\",\"muting\",\"1\"].",
+        "Escape hatch for LMS CLI commands not covered by the other tools. Prefer `search` / `play` / `play_music` / `queue_edit` first — they already handle favorites, playlists and the library. See http://<server>:9000/html/docs/cli-api.html. Example command: [\"mixer\",\"muting\",\"1\"].",
       inputSchema: {
         command: z.array(z.union([z.string(), z.number()])).min(1),
         player: z.string().optional().describe("Player MAC/name, or omit for a server-scoped command."),
