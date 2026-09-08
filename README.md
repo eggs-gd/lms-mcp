@@ -1,10 +1,19 @@
 # lms-mcp
 
-An [MCP](https://modelcontextprotocol.io) server for controlling a **Lyrion Music Server**
-(formerly Logitech Media Server / SlimServer / Squeezebox server).
+An [MCP](https://modelcontextprotocol.io) server for controlling a
+[**Lyrion Music Server**](https://lyrion.org)
+([GitHub](https://github.com/LMS-Community/slimserver),
+[docs](https://lyrion.org/getting-started/)).
 
-It talks to LMS over its JSON-RPC (CLI-over-HTTP) API on port `9000`, and exposes
-playback control, library search and queue management as MCP tools.
+Lyrion Music Server (LMS) is a self-hosted music server — the open-source
+descendant of Logitech's SlimServer / Squeezebox Server. It streams your own
+library and internet radio to hardware Squeezebox players and software ones like
+[squeezelite](https://github.com/ralph-irving/squeezelite) or the
+[Material skin](https://github.com/CDrummond/lms-material).
+
+This server talks to LMS over its JSON-RPC (CLI-over-HTTP) API on port `9000` and
+exposes playback control, favorites/library search and queue management as MCP
+tools.
 
 ## Requirements
 
@@ -106,7 +115,9 @@ Then point the MCP client at the URL:
 
 ## Reference
 
+- Lyrion Music Server: <https://lyrion.org> · [source](https://github.com/LMS-Community/slimserver)
 - LMS CLI API docs: `http://<your-server>:9000/html/docs/cli-api.html`
+- Docker image for LMS itself: [`lmscommunity/lyrionmusicserver`](https://hub.docker.com/r/lmscommunity/lyrionmusicserver)
 
 ## License
 
