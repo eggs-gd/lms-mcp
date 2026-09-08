@@ -1,0 +1,45 @@
+{
+  "name": "lms-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for controlling a Lyrion Music Server (LMS / Squeezebox)",
+  "type": "module",
+  "bin": {
+    "lms-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eggs-gd/lms-mcp.git"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "lyrion",
+    "logitech-media-server",
+    "squeezebox",
+    "slimserver"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.19.1",
+    "express": "^5.2.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

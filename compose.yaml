@@ -1,0 +1,21 @@
+# Always-on deployment: the server runs the Streamable HTTP transport and MCP
+# clients connect to http://<this-host>:3000/mcp
+#
+#   cp .env.example .env   # set LMS_URL, and ideally MCP_AUTH_TOKEN
+#   docker compose up -d
+#
+# Compose reads variables from the local `.env` file automatically.
+
+services:
+  lms-mcp:
+    image: ghcr.io/eggs-gd/lms-mcp:latest
+    # build: .   # uncomment to build from this checkout instead of pulling
+    restart: unless-stopped
+    ports:
+      - "${MCP_HTTP_PORT:-3000}:3000/tcp"
+    environment:
+      LMS_URL: ${LMS_URL:?set LMS_URL in .env}
+      LMS_USERNAME: ${LMS_USERNAME:-}
+      LMS_PASSWORD: ${LMS_PASSWORD:-}
+      LMS_DEFAULT_PLAYER: ${LMS_DEFAULT_PLAYER:-}
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
